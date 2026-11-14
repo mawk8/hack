@@ -18,3 +18,16 @@ tmp/
 __pycache__/
 .pytest_cache/
 *.pyc
+
+# Private attachments, model artifacts and run logs.
+*.xlsx
+*.csv
+*.gguf
+*.safetensors
+*.joblib
+*.npy
+*.npz
+*.pt
+*.pth
+*.onnx
+*.log
