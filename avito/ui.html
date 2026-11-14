@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Черновики услуг — локальное демо</title>
+<style>
+*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#f5f6f8;color:#172030;max-width:1250px;margin:32px auto;padding:0 20px}h1{font-size:28px}p{line-height:1.5}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}section{background:white;padding:24px;border-radius:16px;border:1px solid #dce0e6}label{display:block;margin:14px 0 6px;font-weight:600}textarea,select,button{font:inherit;width:100%;padding:12px;border:1px solid #aab3c1;border-radius:8px}textarea{resize:vertical;min-height:310px}button{margin-top:16px;background:#2459cc;color:white;font-weight:600;cursor:pointer}button:disabled{opacity:.65;cursor:wait}.draft{border-top:1px solid #dce0e6;margin-top:20px;padding-top:12px}.draft p,pre{white-space:pre-wrap;overflow-wrap:anywhere}details{margin:12px 0}summary{cursor:pointer}.note{font-size:14px;color:#536174}#status{min-height:24px}#status.error{color:#a52020}@media(max-width:760px){.columns{grid-template-columns:1fr}body{margin:20px auto}}
+</style>
+<h1>Дополнительные услуги ремонта</h1>
+<p>Локальное демо: объявление → дополнительные категории и черновики. Публикация выполняется пользователем отдельно.</p>
+<div class="columns">
+<section>
+<h2>Исходное объявление</h2>
+<form id="form">
+<label for="source">Исходная категория</label>
+<select id="source">
+<option value="101">101 — Ремонт под ключ</option>
+<option value="102">102 — Штукатурные работы</option>
+<option value="103">103 — Плиточные работы</option>
+<option value="104">104 — Сантехника</option>
+<option value="105">105 — Электрика</option>
+<option value="106">106 — Поклейка обоев и малярные работы</option>
+</select>
+<label for="description">Текст объявления (до 12000 символов)</label>
+<textarea id="description" maxlength="12000" required placeholder="Вставьте исходный текст объявления"></textarea>
+<button id="submit" type="submit">Создать черновики</button>
+</form>
+<p class="note">Команды внутри объявления рассматриваются как данные. Запрос отправляется локальной модели.</p>
+</section>
+<section aria-labelledby="result-heading">
+<h2 id="result-heading">Результат</h2>
+<p id="status" role="status" aria-live="polite">Введите объявление для анализа.</p>
+<p class="note">Фактичность нужно проверить по исходнику. Проверка формата и совпадения цитат не подтверждает смысл автоматически.</p>
+<div id="results"></div>
+<button id="download" type="button" hidden>Скачать JSON черновиков</button>
+</section>
+</div>
+<script>
+const form=document.getElementById('form'), description=document.getElementById('description'), source=document.getElementById('source'), submit=document.getElementById('submit'), status=document.getElementById('status'), results=document.getElementById('results'), download=document.getElementById('download');
+let official=null;
+function add(parent,tag,text){const node=document.createElement(tag);node.textContent=text;parent.appendChild(node);return node;}
+form.addEventListener('submit',async event=>{
+ event.preventDefault();submit.disabled=true;description.disabled=true;source.disabled=true;download.hidden=true;official=null;results.replaceChildren();status.className='';status.textContent='Модель анализирует объявление…';
+ try{
+  const response=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:description.value,mcId:Number(source.value)})});
+  const data=await response.json();if(!response.ok)throw new Error(data.error?.message||'Ошибка локального сервера.');
+  official=data.result;
+  status.textContent=official.drafts.length?`Черновиков: ${official.drafts.length}. Время: ${data.meta.elapsed_seconds.toFixed(2)} с.`:`Дополнительные услуги не найдены. Время: ${data.meta.elapsed_seconds.toFixed(2)} с.`;
+  for(const draft of official.drafts){
+   const card=add(results,'article','');card.className='draft';add(card,'h3',`${draft.mcId} — ${draft.title}`);add(card,'p',draft.text);
+   const evidence=data.evidence.find(item=>item.mcId===draft.mcId),details=add(card,'details','');add(details,'summary','Цитаты и ограничения');
+   for(const quote of evidence.evidence)add(details,'pre',quote);
+   add(details,'p',evidence.constraints.length?'Ограничения: '+evidence.constraints.join('; '):'Ограничения не извлечены.');
+  }
+  download.hidden=false;
+ }catch(error){status.className='error';status.textContent=error instanceof TypeError?'Нет соединения с локальным приложением.':error.message;}
+ finally{submit.disabled=false;description.disabled=false;source.disabled=false;}
+});
+download.addEventListener('click',()=>{if(!official)return;const url=URL.createObjectURL(new Blob([JSON.stringify(official,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='drafts.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+</script>
+</html>
