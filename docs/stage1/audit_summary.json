@@ -1,0 +1,85 @@
+{
+  "archive_sha256": "2ad191c34ee6ee930a12af1d99eef1251e2f29fd49e04322e949f2bbb1a78379",
+  "runtime": {
+    "python": "3.12.14",
+    "pyarrow": "26.0.1"
+  },
+  "normalization": "casefold, whitespace runs→space, strip; punctuation and ё retained",
+  "train": {
+    "rows": 10000,
+    "fields": [
+      "description",
+      "found_microcategories",
+      "item_id",
+      "title"
+    ],
+    "field_types": {
+      "item_id": [
+        "int"
+      ],
+      "title": [
+        "str"
+      ],
+      "description": [
+        "str"
+      ],
+      "found_microcategories": [
+        "list"
+      ]
+    },
+    "exact": {
+      "unique_descriptions": 4866,
+      "duplicate_groups": 413,
+      "rows_in_duplicate_groups": 5547,
+      "extra_duplicate_rows": 5134,
+      "conflicting_label_groups": 0,
+      "rows_in_conflicting_groups": 0
+    },
+    "normalized": {
+      "unique_descriptions": 4855,
+      "duplicate_groups": 414,
+      "rows_in_duplicate_groups": 5559,
+      "extra_duplicate_rows": 5145,
+      "conflicting_label_groups": 0,
+      "rows_in_conflicting_groups": 0
+    },
+    "category_row_frequencies": {
+      "102": 5484,
+      "103": 5073,
+      "104": 4582,
+      "105": 4562,
+      "106": 5481
+    },
+    "empty_labels": 2909,
+    "repeated_identifier_values": 0,
+    "rows_with_repeated_identifiers": 0,
+    "duplicate_category_rows": 0,
+    "missing_or_empty_description": 0,
+    "explicit_source_mcId_present": false
+  },
+  "public_test": {
+    "rows": 208,
+    "schema": "title: string\ndescription: string\ncategories: list<element: string>\n  child 0, element: string",
+    "fields": [
+      "title",
+      "description",
+      "categories"
+    ],
+    "explicit_source_mcId_present": false,
+    "null_descriptions": 0
+  },
+  "overlap": {
+    "exact": {
+      "shared_unique_descriptions": 11,
+      "train_rows": 165,
+      "public_test_rows": 22,
+      "row_pairs": 412
+    },
+    "normalized": {
+      "shared_unique_descriptions": 13,
+      "train_rows": 168,
+      "public_test_rows": 24,
+      "row_pairs": 415
+    }
+  }
+}
