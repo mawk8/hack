@@ -1,6 +1,5 @@
 """Train the fixed baseline and evaluate development only (no generation)."""
 import argparse
-from collections import Counter
 import json
 import platform
 from pathlib import Path
@@ -12,19 +11,11 @@ sys.path.insert(0, str(ROOT))
 
 from avito.baseline import SEED, THRESHOLD, predict, save_model, train
 from avito.data import CATEGORIES, load_training_data, sha256
+from avito.evaluation import metrics
 import joblib
 import numpy
 import scipy
 import sklearn
-
-
-def metrics(expected, predicted):
-    counts = Counter()
-    for truth, result in zip(expected, predicted):
-        truth, result = set(truth), set(result)
-        counts.update(tp=len(truth & result), fp=len(result - truth), fn=len(truth - result))
-    tp, fp, fn = counts['tp'], counts['fp'], counts['fn']
-    return dict(tp=tp, fp=fp, fn=fn, micro_f1=2*tp/(2*tp+fp+fn) if 2*tp+fp+fn else 0.0)
 
 
 def main():
@@ -88,7 +79,7 @@ def main():
         hashes=hashes,
         code_sha256={str(path.relative_to(ROOT)):sha256(path) for path in
                      [ROOT/'avito/__init__.py', ROOT/'avito/data.py', ROOT/'avito/dataset_v2.py',
-                      ROOT/'avito/baseline.py', Path(__file__)]},
+                      ROOT/'avito/baseline.py', ROOT/'avito/evaluation.py', Path(__file__)]},
         paid_api_calls=0, paid_api_cost_rub=0,
         limitations=['source101 only', 'No human-verified labels', 'No drafts or factuality evaluation', 'H3 not tested'],
     )

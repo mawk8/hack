@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from avito.baseline import train, predict, save_model
 from avito.data import load_training_data, validate_labels, sha256
+from avito.evaluation import metrics
 from avito.llm import analyze, DEFAULT_ENDPOINT, DEFAULT_MODEL, validate_endpoint
 from scripts.generate_synthetic import (VERSION, PROMPT_HASH, SCENARIOS, archive_text_hashes, local_request,
                                         output_directory, text_hash, validate_example)
-from scripts.train_baseline import metrics
 
 
 def read_rows(path):
@@ -226,7 +226,7 @@ def main():
                     classifier='scripts/train_baseline.py fixed TF-IDF + OvR LogisticRegression',
                     repeats=1, source_mcId=101),
         versions=dict(python=platform.python_version(), sklearn=sklearn.__version__, numpy=numpy.__version__, scipy=scipy.__version__, joblib=joblib.__version__),
-        code_sha256={str(p.relative_to(ROOT)): sha256(p) for p in [Path(__file__), ROOT/'scripts/generate_synthetic.py', ROOT/'avito/data.py', ROOT/'avito/dataset_v2.py', ROOT/'avito/baseline.py', ROOT/'avito/llm.py']},
+        code_sha256={str(p.relative_to(ROOT)): sha256(p) for p in [Path(__file__), ROOT/'scripts/generate_synthetic.py', ROOT/'avito/data.py', ROOT/'avito/dataset_v2.py', ROOT/'avito/baseline.py', ROOT/'avito/evaluation.py', ROOT/'avito/llm.py']},
         paid_api_cost_rub=0, hardware_cost='unmeasured', factuality='not automatically proven; human review required',
         limitations=['single pass, no sustained latency claim', 'source101 only', 'no final control evaluation',
                      'failed rows retained as null; zero labels only for FN accounting'])
