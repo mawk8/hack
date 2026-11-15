@@ -13,14 +13,15 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-SOURCE = 'Укладка плитки. Только в составе ремонта. <script>alert(1)</script>'
+SOURCE = 'Укладка плитки. Работаем по договору. <script>alert(1)</script>'
 SERVICE = {'mcId': 103, 'evidence': ['Укладка плитки'],
-           'constraints': ['Только в составе ремонта.'],
-           'title': 'Укладка плитки', 'text': 'Укладка плитки. Только в составе ремонта.'}
+           'constraints': ['Работаем по договору.'],
+           'title': 'Укладка плитки', 'text': 'Укладка плитки. Работаем по договору.'}
 
 
 @contextmanager
-def fake_model(services=None, content=None, delay=0, finish_reason='stop', status=200):
+def fake_model(services=None, content=None, delay=0, finish_reason='stop', status=200,
+               truncate_response=False):
     """Real loopback HTTP server returning synthetic chat completions."""
     calls = []
 
@@ -42,7 +43,7 @@ def fake_model(services=None, content=None, delay=0, finish_reason='stop', statu
             self.send_header('Content-Length', str(len(payload)))
             self.end_headers()
             try:
-                self.wfile.write(payload)
+                self.wfile.write(payload[:-1] if truncate_response else payload)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
 

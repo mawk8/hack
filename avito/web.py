@@ -5,7 +5,7 @@ from pathlib import Path
 import socket
 import threading
 
-from .llm import (AnalysisError, DEFAULT_ENDPOINT, DEFAULT_MODEL, analyze,
+from .llm import (AnalysisError, DEFAULT_ENDPOINT, DEFAULT_MODEL, analyze, detect, generate,
                   parse_json, validate_endpoint, validate_input)
 
 MAX_BODY_BYTES = 65536
@@ -54,7 +54,7 @@ def make_server(port=7860, endpoint=DEFAULT_ENDPOINT, model=DEFAULT_MODEL):
                 self.fail(404, 'not_found', 'Путь не найден.')
 
         def do_POST(self):
-            if self.path not in ('/predict', '/analyze'):
+            if self.path not in ('/predict', '/analyze', '/detect', '/generate'):
                 self.fail(404, 'not_found', 'Путь не найден.')
                 return
             # JSON + same-origin browser requests prevent cross-site GPU calls.
@@ -88,26 +88,38 @@ def make_server(port=7860, endpoint=DEFAULT_ENDPOINT, model=DEFAULT_MODEL):
             except (socket.timeout, OSError):
                 self.fail(400, 'invalid_body', 'Не удалось прочитать тело запроса.')
                 return
-            if type(data) is not dict or set(data) != {'description', 'mcId'}:
-                self.fail(422, 'invalid_input', 'Нужны ровно поля description и mcId.')
+            fields = {'description', 'mcId'}
+            if self.path == '/generate':
+                fields.add('selected_mcIds')
+            if type(data) is not dict or set(data) != fields:
+                self.fail(422, 'invalid_input', 'Нужны ровно поля: ' + ', '.join(sorted(fields)) + '.')
                 return
             try:
                 validate_input(data['description'], data['mcId'])
+                if self.path == '/generate':
+                    if type(data['selected_mcIds']) is not list:
+                        self.fail(422, 'invalid_input', 'selected_mcIds: список выбранных категорий.')
+                        return
+                    validate_input(data['description'], data['mcId'], data['selected_mcIds'])
             except AnalysisError as error:
                 self.fail(error.status, error.code, str(error))
                 return
-            if not self.server.inference_lock.acquire(blocking=False):
+            empty_selection = self.path == '/generate' and data['selected_mcIds'] == []
+            if not empty_selection and not self.server.inference_lock.acquire(blocking=False):
                 self.fail(503, 'busy', 'Модель занята другим запросом. Повторите позже.')
                 return
             try:
-                output = analyze(data['description'], data['mcId'], endpoint=endpoint, model=model)
+                operation = {'/detect': detect, '/generate': generate}.get(self.path, analyze)
+                kwargs = {'selected_mcIds': data['selected_mcIds']} if self.path == '/generate' else {}
+                output = operation(data['description'], data['mcId'], endpoint=endpoint, model=model, **kwargs)
                 self.send_json(200, output['result'] if self.path == '/predict' else output)
             except AnalysisError as error:
                 self.fail(error.status, error.code, str(error), error.elapsed_seconds)
             except Exception:
                 self.fail(500, 'internal_error', 'Внутренняя ошибка приложения.')
             finally:
-                self.server.inference_lock.release()
+                if not empty_selection:
+                    self.server.inference_lock.release()
 
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     server.daemon_threads = True
