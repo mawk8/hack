@@ -6,18 +6,26 @@ files are verified, never overwritten or deleted. No system installation.
 import argparse
 import hashlib
 import json
+import logging
 from pathlib import Path
 import re
 import stat
+import sys
 import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from avito.log import progress, setup_logging
 MODEL_REVISION = '7c41481f57cb95916b40956ab2f0b139b296d974'
 MODEL_NAME = 'Qwen3-8B-Q4_K_M.gguf'
 MODEL_SHA256 = 'd98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785'
 TAG_URL = 'https://github.com/ggml-org/llama.cpp/releases/download/v1.0.0/nightly-tag.txt'
 TAG_SHA256 = 'e8352faf0647cae078e6be57cd129ba534ec0664b162231a68955379e9c05e4b'
+
+
+log = logging.getLogger('setup_local_llm')
 
 
 def sha256(path):
@@ -33,9 +41,21 @@ def fetch(url, destination, expected_sha):
     if not destination.exists():
         destination.parent.mkdir(parents=True, exist_ok=True)
         request = urllib.request.Request(url, headers={'User-Agent': 'avito-hackathon-prototype'})
+        log.info('downloading %s', destination.name)
         with urllib.request.urlopen(request, timeout=60) as response, destination.open('xb') as out:
-            while chunk := response.read(4 * 1024 * 1024):
-                out.write(chunk)
+            total = int(response.headers.get('Content-Length') or 0) or None
+            bar = progress(total=total, desc=destination.name, unit='B', unit_scale=True)
+            try:
+                while chunk := response.read(4 * 1024 * 1024):
+                    out.write(chunk)
+                    if bar is not None:
+                        bar.update(len(chunk))
+            finally:
+                if bar is not None:
+                    bar.close()
+    else:
+        log.info('already present: %s', destination.name)
+    log.info('verifying sha256 of %s', destination.name)
     if sha256(destination) != expected_sha:
         raise ValueError(f'Checksum mismatch; file preserved, not used: {destination}')
     return destination
@@ -113,6 +133,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--install', action='store_true', help='Download official runtime and5GB GGUF')
     args = parser.parse_args()
+    setup_logging()
     if args.install:
         install()
     else:

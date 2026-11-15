@@ -1,13 +1,16 @@
 """One local model call; structural validation does not prove factual accuracy."""
 import ipaddress
 import json
+import logging
 import socket
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-DEFAULT_ENDPOINT = 'http://127.0.0.1:8080/v1'
+log = logging.getLogger(__name__)
+
+DEFAULT_ENDPOINT ='http://127.0.0.1:8080/v1'
 DEFAULT_MODEL = 'avito-qwen3-8b'
 MAX_RESPONSE_BYTES = 262144
 CATEGORIES = range(101, 107)
@@ -162,7 +165,7 @@ def analyze(description, mcId, endpoint=DEFAULT_ENDPOINT, model=DEFAULT_MODEL,
             forced_categories=None, timeout=30):
     """Return official result with separate evidence and measured diagnostics.
 
-    No retries, logging or publication. Validation checks structure and exact quotes,
+    No retries or publication; logs only ids, counts and timings, never ad text. Validation checks structure and exact quotes,
     not the semantic truth of proposed services or generated statements.
     """
     started = time.perf_counter()
@@ -230,7 +233,9 @@ def analyze(description, mcId, endpoint=DEFAULT_ENDPOINT, model=DEFAULT_MODEL,
                              elapsed_seconds=time.perf_counter() - started) from None
     except AnalysisError as error:
         error.elapsed_seconds = time.perf_counter() - started
+        log.warning('analyze failed: %s mcId=%s %.2fs', type(error).__name__, mcId, error.elapsed_seconds)
         raise
+    log.debug('analyze ok: mcId=%s drafts=%d %.2fs', mcId, len(services), time.perf_counter() - started)
     return {'result': {'drafts': [{key: s[key] for key in ('mcId', 'title', 'text')} for s in services]},
             'evidence': [{key: s[key] for key in ('mcId', 'evidence', 'constraints')} for s in services],
             'meta': {'elapsed_seconds': time.perf_counter() - started, 'attempts': attempts,

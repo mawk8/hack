@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT))
 
 from avito.baseline import SEED, THRESHOLD, predict, save_model, train
 from avito.data import CATEGORIES, load_training_data, sha256
+from avito.log import progress, setup_logging
+import logging
 import joblib
 import numpy
 import scipy
@@ -32,6 +34,8 @@ def main():
     parser.add_argument('--archive', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, default=ROOT / 'data' / 'runs' / 'baseline')
     args = parser.parse_args()
+    setup_logging()
+    log = logging.getLogger('train_baseline')
     output = args.output_dir.resolve()
     if not output.is_relative_to((ROOT / 'data').resolve()):
         parser.error('--output-dir must be inside ignored data/ (contains model and advertisement text)')
@@ -41,12 +45,14 @@ def main():
     if len(fit) != 9637 or len(development) != 50:
         raise ValueError('Expected exactly 9637 fit rows and 50 development examples')
     output.mkdir(parents=True, exist_ok=False)
+    log.info('loaded fit=%d development=%d; training', len(fit), len(development))
     started = time.perf_counter()
     model = train([r['description'] for r in fit],
                   [[v['mcId'] for v in r['found_microcategories']] for r in fit])
     fit_seconds = time.perf_counter() - started
+    log.info('trained in %.1fs', fit_seconds)
     predicted, durations = [], []
-    for row in development:
+    for row in progress(development, desc='predict', unit='ad'):
         started = time.perf_counter()
         predicted.append(predict(model, row['description'], row['source_mcId']))
         durations.append(time.perf_counter() - started)
@@ -82,6 +88,7 @@ def main():
         limitations=['source101 only', 'No human-verified labels', 'No drafts or factuality evaluation', 'H3 not tested'],
     )
     save_model(model, output / 'model.joblib')
+    log.info('saving results to %s', output)
     with (output / 'development_predictions.jsonl').open('x', encoding='utf-8') as stream:
         for row, labels, duration in zip(development, predicted, durations):
             stream.write(json.dumps(dict(item_id=row['item_id'], source_row=row['source_row'], group_id=row['group_id'],

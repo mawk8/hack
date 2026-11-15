@@ -3,6 +3,7 @@ import argparse
 import json
 import sys
 
+from .log import setup_logging
 from .llm import AnalysisError, DEFAULT_ENDPOINT, DEFAULT_MODEL, analyze
 
 
@@ -19,6 +20,7 @@ def main():
         command.add_argument('--endpoint', default=DEFAULT_ENDPOINT)
         command.add_argument('--model', default=DEFAULT_MODEL)
     args = parser.parse_args()
+    setup_logging()
     try:
         if args.command == 'serve':
             from .web import serve

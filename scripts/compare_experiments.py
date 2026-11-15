@@ -16,6 +16,10 @@ from avito.llm import analyze, DEFAULT_ENDPOINT, DEFAULT_MODEL, validate_endpoin
 from scripts.generate_synthetic import (VERSION, PROMPT_HASH, SCENARIOS, archive_text_hashes, local_request,
                                         output_directory, text_hash, validate_example)
 from scripts.train_baseline import metrics
+from avito.log import progress, setup_logging
+import logging
+
+log = logging.getLogger('compare_experiments')
 
 
 def read_rows(path):
@@ -88,9 +92,9 @@ def validate_overlay(development, overlay):
     return result
 
 
-def evaluate(development, classifier, endpoint, model, classification_only=False):
+def evaluate(development, classifier, endpoint, model, classification_only=False, label='eval'):
     rows = []
-    for source in development:
+    for source in progress(development, desc=label, unit='ad'):
         started = time.perf_counter()
         row = dict(item_id=source.get('item_id'), source_row=source.get('source_row'),
                    group_id=source.get('group_id'), source_mcId=source.get('source_mcId', 101),
@@ -118,6 +122,7 @@ def evaluate(development, classifier, endpoint, model, classification_only=False
         except Exception as error:
             row['predicted'] = None
             row['error'] = dict(type=type(error).__name__, message=str(error))
+            log.warning('row %s failed: %s', source.get('item_id'), type(error).__name__)
         row['elapsed_seconds'] = time.perf_counter() - started
         rows.append(row)
     return rows
@@ -161,6 +166,7 @@ def main():
     parser.add_argument('--model', default=DEFAULT_MODEL)
     parser.add_argument('--limit', type=int, help='Explicitly preliminary pilot, 1..50')
     args = parser.parse_args()
+    setup_logging()
     output = output_directory(args.output_dir)
     endpoint = validate_endpoint(args.endpoint)
     if args.limit is not None and not 1 <= args.limit <= 50:
@@ -192,18 +198,23 @@ def main():
     descriptions = [r['description'] for r in fit]
     labels = [[v['mcId'] for v in r['found_microcategories']] for r in fit]
     started = time.perf_counter()
+    log.info('training A on %d fit rows', len(descriptions))
     a = train(descriptions, labels)
     save_model(a, output / 'A-model.joblib')
     training_times['A_fit_seconds'] = time.perf_counter() - started
     models = {'A': a}
     if synthetic:
+        log.info('training B with %d synthetic rows', len(synthetic))
         started = time.perf_counter()
         models['B'] = train(descriptions + [r['description'] for r in synthetic], labels + [r['labels'] for r in synthetic])
         training_times['B_fit_seconds'] = time.perf_counter() - started
         save_model(models['B'], output / 'B-model.joblib')
     scores = {}
     def store(name, model, classification_only=False):
-        rows = evaluate(development, model, endpoint, args.model, classification_only)
+        log.info('evaluating %s on %d rows', name, len(development))
+        rows = evaluate(development, model, endpoint, args.model, classification_only, label=name)
+        log.info('%s done: %d ok, %d failed', name,
+                 sum(r['status'] == 'ok' for r in rows), sum(r['status'] != 'ok' for r in rows))
         with (output / (name + '-predictions.jsonl')).open('x', encoding='utf-8') as stream:
             for row in rows:
                 stream.write(json.dumps(row, ensure_ascii=False) + '\n')

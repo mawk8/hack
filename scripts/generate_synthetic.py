@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import logging
 from pathlib import Path
 import random
 import sys
@@ -14,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 from avito.data import load_training_data, validate_labels, sha256
 from avito.llm import DEFAULT_ENDPOINT, DEFAULT_MODEL, MAX_RESPONSE_BYTES, SYSTEM_PROMPT, parse_json, validate_endpoint
 from scripts.audit_data import normalize
+from avito.log import progress, setup_logging
 
 VERSION = 'synthetic-v1'
 SCENARIOS = ('offered', 'negated', 'third_party')
@@ -31,6 +33,9 @@ JSON строго {"examples":[{"description":"...","mcId":101,"labels":[102],
 Метки предварительные; не называй их проверенными человеком.
 '''
 PROMPT_HASH = hashlib.sha256(PROMPT.encode()).hexdigest()
+
+
+log = logging.getLogger('generate_synthetic')
 
 
 def text_hash(text):
@@ -136,7 +141,10 @@ def generate(fit, forbidden, count, output, endpoint, model, hashes=None):
                     paid_api_cost_rub=0, hardware_cost='unmeasured', errors=[],
                     scenario_counts=dict.fromkeys(SCENARIOS, 0))
     started = time.perf_counter()
+    bar = None
     try:
+        log.info('generating %d examples from %d unique seeds', count, len(seeds))
+        bar = progress(total=count, desc='synthetic', unit='ex')
         with (output / 'synthetic.jsonl').open('x', encoding='utf-8') as stream:
             for seed in seeds:
                 remaining = count - metadata['accepted']
@@ -156,12 +164,19 @@ def generate(fit, forbidden, count, output, endpoint, model, hashes=None):
                 stream.flush()
                 forbidden.update(pending)
                 metadata['accepted'] += len(accepted)
+                if bar is not None:
+                    bar.update(len(accepted))
+                log.debug('batch %d accepted %d (total %d)', metadata['attempts'], len(accepted), metadata['accepted'])
         metadata['status'] = 'complete'
+        log.info('complete: accepted=%d attempts=%d', metadata['accepted'], metadata['attempts'])
     except Exception as error:
+        log.error('failed at batch %d: %s', metadata['attempts'], type(error).__name__)
         metadata['status'] = 'failed'
         metadata['errors'].append(dict(batch=metadata['attempts'], type=type(error).__name__, message=str(error)))
         raise
     finally:
+        if bar is not None:
+            bar.close()
         metadata['elapsed_seconds'] = time.perf_counter() - started
         with (output / 'metadata.json').open('x', encoding='utf-8') as stream:
             json.dump(metadata, stream, ensure_ascii=False, indent=2)
@@ -176,6 +191,7 @@ def main():
     parser.add_argument('--endpoint', default=DEFAULT_ENDPOINT)
     parser.add_argument('--model', default=DEFAULT_MODEL)
     args = parser.parse_args()
+    setup_logging()
     if not 1 <= args.count <= 300:
         parser.error('--count must be 1..300')
     output = output_directory(args.output_dir)
