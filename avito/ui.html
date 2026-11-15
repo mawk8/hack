@@ -12,15 +12,7 @@
 <section>
 <h2>Исходное объявление</h2>
 <form id="form">
-<label for="source">Исходная категория</label>
-<select id="source">
-<option value="101">101 — Ремонт под ключ</option>
-<option value="102">102 — Штукатурные работы</option>
-<option value="103">103 — Плиточные работы</option>
-<option value="104">104 — Сантехника</option>
-<option value="105">105 — Электрика</option>
-<option value="106">106 — Поклейка обоев и малярные работы</option>
-</select>
+<p><strong>Исходная категория:</strong> 101 — Ремонт под ключ</p>
 <label for="description">Текст объявления (до 12000 символов)</label>
 <textarea id="description" maxlength="12000" required placeholder="Вставьте исходный текст объявления"></textarea>
 <button id="submit" type="submit">Создать черновики</button>
@@ -36,13 +28,13 @@
 </section>
 </div>
 <script>
-const form=document.getElementById('form'), description=document.getElementById('description'), source=document.getElementById('source'), submit=document.getElementById('submit'), status=document.getElementById('status'), results=document.getElementById('results'), download=document.getElementById('download');
+const form=document.getElementById('form'), description=document.getElementById('description'), submit=document.getElementById('submit'), status=document.getElementById('status'), results=document.getElementById('results'), download=document.getElementById('download');
 let official=null;
 function add(parent,tag,text){const node=document.createElement(tag);node.textContent=text;parent.appendChild(node);return node;}
 form.addEventListener('submit',async event=>{
- event.preventDefault();submit.disabled=true;description.disabled=true;source.disabled=true;download.hidden=true;official=null;results.replaceChildren();status.className='';status.textContent='Модель анализирует объявление…';
+ event.preventDefault();submit.disabled=true;description.disabled=true;download.hidden=true;official=null;results.replaceChildren();status.className='';status.textContent='Модель анализирует объявление…';
  try{
-  const response=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:description.value,mcId:Number(source.value)})});
+  const response=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:description.value,mcId:101})});
   const data=await response.json();if(!response.ok)throw new Error(data.error?.message||'Ошибка локального сервера.');
   official=data.result;
   status.textContent=official.drafts.length?`Черновиков: ${official.drafts.length}. Время: ${data.meta.elapsed_seconds.toFixed(2)} с.`:`Дополнительные услуги не найдены. Время: ${data.meta.elapsed_seconds.toFixed(2)} с.`;
@@ -54,7 +46,7 @@ form.addEventListener('submit',async event=>{
   }
   download.hidden=false;
  }catch(error){status.className='error';status.textContent=error instanceof TypeError?'Нет соединения с локальным приложением.':error.message;}
- finally{submit.disabled=false;description.disabled=false;source.disabled=false;}
+ finally{submit.disabled=false;description.disabled=false;}
 });
 download.addEventListener('click',()=>{if(!official)return;const url=URL.createObjectURL(new Blob([JSON.stringify(official,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='drafts.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 </script>
