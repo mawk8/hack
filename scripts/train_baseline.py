@@ -30,6 +30,9 @@ def metrics(expected, predicted):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive', type=Path, required=True)
+    parser.add_argument('--data-dir', type=Path, help='Default: prepared data/v2, otherwise legacy stage1')
+    parser.add_argument('--features', choices=('char', 'char-word'), default='char',
+                        help='E1: add word unigrams/bigrams; all classifier settings stay fixed')
     parser.add_argument('--output-dir', type=Path, default=ROOT / 'data' / 'runs' / 'baseline')
     args = parser.parse_args()
     output = args.output_dir.resolve()
@@ -37,13 +40,14 @@ def main():
         parser.error('--output-dir must be inside ignored data/ (contains model and advertisement text)')
     if output.exists():
         parser.error('output directory already exists; choose a new directory (no overwrite)')
-    fit, development, hashes = load_training_data(args.archive)
-    if len(fit) != 9637 or len(development) != 50:
-        raise ValueError('Expected exactly 9637 fit rows and 50 development examples')
+    fit, development, hashes = load_training_data(args.archive, args.data_dir)
+    if not fit or not development:
+        raise ValueError('Training and development must both be nonempty')
+    version = 'v2' if 'manifest.json' in hashes else 'v1'
     output.mkdir(parents=True, exist_ok=False)
     started = time.perf_counter()
     model = train([r['description'] for r in fit],
-                  [[v['mcId'] for v in r['found_microcategories']] for r in fit])
+                  [[v['mcId'] for v in r['found_microcategories']] for r in fit], features=args.features)
     fit_seconds = time.perf_counter() - started
     predicted, durations = [], []
     for row in development:
@@ -55,10 +59,16 @@ def main():
     empty_fp_rows = sum(bool(predicted[i]) for i in empty_indices)
     report = dict(
         mode='classification-only; no generation; not full online latency',
-        label_status='noisy-label; provisional automatic labels; human_verified=0',
+        label_status=('noisy-label; original public annotations; human_verified=0' if version == 'v2'
+                      else 'noisy-label; provisional automatic labels; human_verified=0'),
+        dataset_version=version,
         train_rows=len(fit), development_rows=len(development), source_mcId=101,
+        features=args.features,
         category_order=list(CATEGORIES), threshold=THRESHOLD, seed=SEED,
         tfidf=dict(analyzer='char_wb', ngram_range=[3, 5], min_df=2, max_features=80000, sublinear_tf=True),
+        word_tfidf=(dict(analyzer='word', ngram_range=[1, 2], min_df=2, max_features=80000,
+                        sublinear_tf=True, combination='FeatureUnion; each branch L2; no extra normalization')
+                    if args.features == 'char-word' else None),
         classifier=dict(type='OneVsRestClassifier(LogisticRegression)', C=1.0, solver='liblinear', random_state=SEED, max_iter=1000),
         **metrics(expected, predicted),
         per_category={str(c):metrics([[c] if c in values else [] for values in expected],
@@ -77,7 +87,8 @@ def main():
         machine=dict(platform=platform.platform(), processor=platform.processor()),
         hashes=hashes,
         code_sha256={str(path.relative_to(ROOT)):sha256(path) for path in
-                     [ROOT/'avito/__init__.py', ROOT/'avito/data.py', ROOT/'avito/baseline.py', Path(__file__)]},
+                     [ROOT/'avito/__init__.py', ROOT/'avito/data.py', ROOT/'avito/dataset_v2.py',
+                      ROOT/'avito/baseline.py', Path(__file__)]},
         paid_api_calls=0, paid_api_cost_rub=0,
         limitations=['source101 only', 'No human-verified labels', 'No drafts or factuality evaluation', 'H3 not tested'],
     )

@@ -37,11 +37,12 @@ def text_hash(text):
     return hashlib.sha256(normalize(text).encode()).hexdigest()
 
 
-def archive_text_hashes(archive):
+def archive_text_hashes(archive, development=()):
     # Only ephemeral hashes, including excluded groups. Never return control text.
     with zipfile.ZipFile(archive) as source:
         with source.open('innoglobalhack_avito/public-train-annotated.jsonl') as stream:
-            return {text_hash(parse_json(line)['description']) for line in stream if line.strip()}
+            hashes = {text_hash(parse_json(line)['description']) for line in stream if line.strip()}
+    return hashes | {text_hash(row['description']) for row in development}
 
 
 def output_directory(path):
@@ -180,8 +181,8 @@ def main():
         parser.error('--count must be 1..300')
     output = output_directory(args.output_dir)
     validate_endpoint(args.endpoint)
-    fit, _, hashes = load_training_data(args.archive)
-    forbidden = archive_text_hashes(args.archive)
+    fit, development, hashes = load_training_data(args.archive)
+    forbidden = archive_text_hashes(args.archive, development)
     output.mkdir(parents=True, exist_ok=False)
     print(json.dumps(generate(fit, forbidden, args.count, output, args.endpoint, args.model, hashes), ensure_ascii=True))
 

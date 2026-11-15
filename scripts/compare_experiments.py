@@ -154,23 +154,26 @@ def summarize(development, rows):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive', required=True, type=Path)
+    parser.add_argument('--data-dir', type=Path, help='Default: prepared data/v2, otherwise legacy stage1')
     parser.add_argument('--output-dir', type=Path, default=ROOT / 'data/runs/comparison')
     parser.add_argument('--synthetic', type=Path)
     parser.add_argument('--human-development', type=Path)
     parser.add_argument('--endpoint', default=DEFAULT_ENDPOINT)
     parser.add_argument('--model', default=DEFAULT_MODEL)
-    parser.add_argument('--limit', type=int, help='Explicitly preliminary pilot, 1..50')
+    parser.add_argument('--limit', type=int, help='Explicitly preliminary pilot; not more than development size')
     args = parser.parse_args()
     output = output_directory(args.output_dir)
     endpoint = validate_endpoint(args.endpoint)
-    if args.limit is not None and not 1 <= args.limit <= 50:
-        parser.error('--limit must be 1..50')
+    if args.limit is not None and args.limit < 1:
+        parser.error('--limit must be positive')
     # Fail before fitting or producing a misleading partial comparison.
     health = local_request(endpoint, '/models')
     if (type(health) is not dict or type(health.get('data')) is not list
             or not any(type(m) is dict and m.get('id') == args.model for m in health['data'])):
         raise ValueError('Local model alias unavailable in /v1/models')
-    fit, development, hashes = load_training_data(args.archive)
+    fit, development, hashes = load_training_data(args.archive, args.data_dir)
+    if args.limit is not None and args.limit > len(development):
+        parser.error('--limit exceeds development size')
     if args.human_development:
         development = validate_overlay(development, read_rows(args.human_development))
         hashes['human_development_sha256'] = sha256(args.human_development)
@@ -180,7 +183,7 @@ def main():
         metadata = json.loads(args.synthetic.with_name('metadata.json').read_text(encoding='utf-8'))
         if metadata.get('status') != 'complete' or metadata.get('accepted', 0) <= 0:
             raise ValueError('Synthetic pilot failed or empty; B training refused')
-        synthetic = validate_synthetic(read_rows(args.synthetic), fit, archive_text_hashes(args.archive))
+        synthetic = validate_synthetic(read_rows(args.synthetic), fit, archive_text_hashes(args.archive, development))
         if metadata['accepted'] != len(synthetic) or metadata.get('requested') != len(synthetic):
             raise ValueError('Synthetic pilot coverage mismatch')
         hashes['synthetic_sha256'] = sha256(args.synthetic)
@@ -213,7 +216,8 @@ def main():
         store(name + '_full', model)
     store('C_full', None)
     import sklearn, numpy, scipy, joblib
-    report = dict(version='comparison-v1', hashes=hashes, scores=scores, training_times=training_times,
+    report = dict(version='comparison-v1', dataset_version='v2' if 'manifest.json' in hashes else 'v1',
+        hashes=hashes, scores=scores, training_times=training_times,
         label_status='human_verified' if args.human_development else 'noisy-label diagnostics; human_verified=0',
         coverage=dict(evaluated=len(development), frozen_development=full_count, fit=len(fit), synthetic=len(synthetic)),
         preliminary=args.limit is not None, synthetic_label_status='provisional' if synthetic else 'absent',
@@ -222,7 +226,7 @@ def main():
                     classifier='scripts/train_baseline.py fixed TF-IDF + OvR LogisticRegression',
                     repeats=1, source_mcId=101),
         versions=dict(python=platform.python_version(), sklearn=sklearn.__version__, numpy=numpy.__version__, scipy=scipy.__version__, joblib=joblib.__version__),
-        code_sha256={str(p.relative_to(ROOT)): sha256(p) for p in [Path(__file__), ROOT/'scripts/generate_synthetic.py', ROOT/'avito/data.py', ROOT/'avito/baseline.py', ROOT/'avito/llm.py']},
+        code_sha256={str(p.relative_to(ROOT)): sha256(p) for p in [Path(__file__), ROOT/'scripts/generate_synthetic.py', ROOT/'avito/data.py', ROOT/'avito/dataset_v2.py', ROOT/'avito/baseline.py', ROOT/'avito/llm.py']},
         paid_api_cost_rub=0, hardware_cost='unmeasured', factuality='not automatically proven; human review required',
         limitations=['single pass, no sustained latency claim', 'source101 only', 'no final control evaluation',
                      'failed rows retained as null; zero labels only for FN accounting'])

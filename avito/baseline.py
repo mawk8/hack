@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.multiclass import OneVsRestClassifier
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.preprocessing import MultiLabelBinarizer
 
 from avito.data import CATEGORIES, validate_description, validate_labels
@@ -15,7 +15,9 @@ THRESHOLD = 0.5
 SEED = 42
 
 
-def train(descriptions, label_sets):
+def train(descriptions, label_sets, *, features='char'):
+    if features not in ('char', 'char-word'):
+        raise ValueError('features must be char or char-word')
     if (not isinstance(descriptions, (list, tuple)) or not descriptions
             or not isinstance(label_sets, (list, tuple)) or len(descriptions) != len(label_sets)):
         raise ValueError('Nonempty matching descriptions and label_sets required')
@@ -23,9 +25,16 @@ def train(descriptions, label_sets):
         validate_description(description)
     labels = [validate_labels(values) for values in label_sets]
     y = MultiLabelBinarizer(classes=CATEGORIES).fit_transform(labels)
+    vectorizer = TfidfVectorizer(analyzer='char_wb', ngram_range=(3, 5), min_df=2,
+                                max_features=80000, sublinear_tf=True)
+    if features == 'char-word':
+        vectorizer = FeatureUnion([
+            ('char', vectorizer),
+            ('word', TfidfVectorizer(ngram_range=(1, 2), min_df=2,
+                                    max_features=80000, sublinear_tf=True)),
+        ])
     model = Pipeline([
-        ('tfidf', TfidfVectorizer(analyzer='char_wb', ngram_range=(3, 5), min_df=2,
-                                max_features=80000, sublinear_tf=True)),
+        ('tfidf', vectorizer),
         ('classifier', OneVsRestClassifier(LogisticRegression(
             C=1.0, solver='liblinear', random_state=SEED, max_iter=1000))),
     ])

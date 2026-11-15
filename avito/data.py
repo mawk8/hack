@@ -86,8 +86,19 @@ def select_training_rows(rows, manifest, exclusions):
             for index, row in enumerate(rows) if index not in excluded]
 
 
-def load_training_data(archive, directory=ROOT / 'docs' / 'stage1'):
+def load_training_data(archive, directory=None):
+    if directory is None:
+        newer = ROOT / 'data' / 'v2'
+        directory = newer if newer.exists() else ROOT / 'docs' / 'stage1'
     directory = Path(directory)
+    manifest = directory / 'manifest.json'
+    if manifest.exists():
+        if json.loads(manifest.read_bytes()).get('version') != 'data-v2':
+            raise ValueError('Unsupported dataset manifest version')
+        from .dataset_v2 import load_training_data as load_v2
+        return load_v2(archive, directory)
+    if directory.resolve() == (ROOT / 'data' / 'v2').resolve():
+        raise ValueError('Incomplete data/v2: finish preparation before training')
     hashes = verify_freeze(directory, archive)
     with zipfile.ZipFile(archive) as source:
         payload = source.read('innoglobalhack_avito/public-train-annotated.jsonl')
