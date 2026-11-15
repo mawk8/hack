@@ -4,50 +4,164 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Черновики услуг — локальное демо</title>
 <style>
-*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#f5f6f8;color:#172030;max-width:1250px;margin:32px auto;padding:0 20px}h1{font-size:28px}p{line-height:1.5}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}section{background:white;padding:24px;border-radius:16px;border:1px solid #dce0e6}label{display:block;margin:14px 0 6px;font-weight:600}textarea,select,button{font:inherit;width:100%;padding:12px;border:1px solid #aab3c1;border-radius:8px}textarea{resize:vertical;min-height:310px}button{margin-top:16px;background:#2459cc;color:white;font-weight:600;cursor:pointer}button:disabled{opacity:.65;cursor:wait}.draft{border-top:1px solid #dce0e6;margin-top:20px;padding-top:12px}.draft p,pre{white-space:pre-wrap;overflow-wrap:anywhere}details{margin:12px 0}summary{cursor:pointer}.note{font-size:14px;color:#536174}#status{min-height:24px}#status.error{color:#a52020}@media(max-width:760px){.columns{grid-template-columns:1fr}body{margin:20px auto}}
+*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#f5f6f8;color:#172030;max-width:1250px;margin:32px auto;padding:0 20px}h1{font-size:28px}p{line-height:1.5}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}section{background:white;padding:24px;border-radius:16px;border:1px solid #dce0e6}label{display:block;margin:14px 0 6px;font-weight:600}textarea,button,input[type=file]{font:inherit;width:100%;padding:12px;border:1px solid #aab3c1;border-radius:8px}textarea{resize:vertical;min-height:260px}button{margin-top:16px;background:#2459cc;color:white;font-weight:600;cursor:pointer}button:disabled{opacity:.55;cursor:default}.item,.draft{border-top:1px solid #dce0e6;margin-top:20px;padding-top:12px}.draft p,pre{white-space:pre-wrap;overflow-wrap:anywhere}details{margin:12px 0}summary{cursor:pointer}.note{font-size:14px;color:#536174}.error{color:#a52020}#status{min-height:24px}.category{border:1px solid #dce0e6;border-radius:8px;padding:0 12px;margin:12px 0}.category label{cursor:pointer}.category input{margin-right:8px}progress{width:100%;margin-top:12px}@media(max-width:760px){.columns{grid-template-columns:1fr}body{margin:20px auto}}
 </style>
 <h1>Дополнительные услуги ремонта</h1>
-<p>Локальное демо: объявление → дополнительные категории и черновики. Публикация выполняется пользователем отдельно.</p>
+<p>Объявление → найденные услуги → ваш выбор → черновики. Публикация выполняется пользователем отдельно.</p>
 <div class="columns">
 <section>
 <h2>Исходное объявление</h2>
-<form id="form">
 <p><strong>Исходная категория:</strong> 101 — Ремонт под ключ</p>
+<form id="form">
 <label for="description">Текст объявления (до 12000 символов)</label>
 <textarea id="description" maxlength="12000" required placeholder="Вставьте исходный текст объявления"></textarea>
-<button id="submit" type="submit">Создать черновики</button>
+<button id="submit" type="submit">Найти услуги</button>
 </form>
-<p class="note">Команды внутри объявления рассматриваются как данные. Запрос отправляется локальной модели.</p>
+<h2>Или таблица CSV</h2>
+<p class="note">UTF-8 / BOM, разделитель: запятая, точка с запятой или табуляция. До 200 записей, до 2 MiB. Колонки: description (обязательно), id или testcase, title (необязательно). Без колонки идентификатора используется номер записи. title только показывается, в модель передаётся description.</p>
+<label for="csv">Локальный CSV-файл</label>
+<input id="csv" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values">
+<button id="import" type="button" disabled>Импортировать и найти услуги</button>
+<p class="note">Команды внутри объявления рассматриваются как данные. Строки обрабатываются последовательно локальной моделью.</p>
 </section>
 <section aria-labelledby="result-heading">
 <h2 id="result-heading">Результат</h2>
-<p id="status" role="status" aria-live="polite">Введите объявление для анализа.</p>
-<p class="note">Фактичность нужно проверить по исходнику. Проверка формата и совпадения цитат не подтверждает смысл автоматически.</p>
+<p id="status" role="status" aria-live="polite">Введите объявление или выберите CSV.</p>
+<progress id="progress" hidden max="1" value="0" aria-label="Обработано записей"></progress>
+<p class="note">Фактичность нужно проверить по исходнику. Точная цитата не подтверждает смысл автоматически. Отметьте услуги для черновиков; автоматическое обнаружение сохранится отдельно от выбора.</p>
 <div id="results"></div>
-<button id="download" type="button" hidden>Скачать JSON черновиков</button>
+<button id="generate" type="button" disabled>Создать черновики для выбранных</button>
+<button id="download" type="button" hidden>Скачать JSON результатов</button>
+<button id="submission" type="button" disabled>Скачать CSV для сдачи</button>
+<p id="submission-note" class="note"></p>
 </section>
 </div>
 <script>
-const form=document.getElementById('form'), description=document.getElementById('description'), submit=document.getElementById('submit'), status=document.getElementById('status'), results=document.getElementById('results'), download=document.getElementById('download');
-let official=null;
+const form=document.getElementById('form'), description=document.getElementById('description'), submit=document.getElementById('submit'), status=document.getElementById('status'), results=document.getElementById('results'), download=document.getElementById('download'), generate=document.getElementById('generate'), csv=document.getElementById('csv'), importButton=document.getElementById('import'), progress=document.getElementById('progress');
+const names={102:'Штукатурные работы',103:'Плиточные работы',104:'Сантехника',105:'Электрика',106:'Обои и малярные работы'};
+const submission=document.getElementById('submission'),submissionNote=document.getElementById('submission-note');
+let items=[],busy=false;
 function add(parent,tag,text){const node=document.createElement(tag);node.textContent=text;parent.appendChild(node);return node;}
-form.addEventListener('submit',async event=>{
- event.preventDefault();submit.disabled=true;description.disabled=true;download.hidden=true;official=null;results.replaceChildren();status.className='';status.textContent='Модель анализирует объявление…';
- try{
-  const response=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description:description.value,mcId:101})});
-  const data=await response.json();if(!response.ok)throw new Error(data.error?.message||'Ошибка локального сервера.');
-  official=data.result;
-  status.textContent=official.drafts.length?`Черновиков: ${official.drafts.length}. Время: ${data.meta.elapsed_seconds.toFixed(2)} с.`:`Дополнительные услуги не найдены. Время: ${data.meta.elapsed_seconds.toFixed(2)} с.`;
-  for(const draft of official.drafts){
-   const card=add(results,'article','');card.className='draft';add(card,'h3',`${draft.mcId} — ${draft.title}`);add(card,'p',draft.text);
-   const evidence=data.evidence.find(item=>item.mcId===draft.mcId),details=add(card,'details','');add(details,'summary','Цитаты и ограничения');
-   for(const quote of evidence.evidence)add(details,'pre',quote);
-   add(details,'p',evidence.constraints.length?'Ограничения: '+evidence.constraints.join('; '):'Ограничения не извлечены.');
+function message(text,error=false){status.textContent=text;status.className=error?'error':'';}
+function makeItem(source){return {...source,automatic_categories:[],selected_mcIds:[],drafts:null,error:null,status:'pending',detection_status:'pending',generation_status:'not_requested',detection_meta:null,generation_meta:null,evidence:[]};}
+function submissionCsv(rows){
+ if(!rows.length)throw new Error('Импортируйте CSV или найдите услуги в объявлении.');
+ const records=['testcase,microcats,descriptions'];
+ const field=value=>'"'+String(value).replaceAll('"','""')+'"';
+ for(const item of rows){
+  if(item.error||item.detection_status!=='success')throw new Error(`Запись ${item.id}: сначала завершите поиск без ошибок.`);
+  const ids=item.automatic_categories.map(category=>category.mcId);
+  let texts=[];
+  if(ids.length){
+   if(item.selected_mcIds.length!==ids.length||!ids.every(id=>item.selected_mcIds.includes(id)))throw new Error(`Запись ${item.id}: выберите все автоматически найденные услуги для сдачи.`);
+   if(item.generation_status!=='success'||!item.drafts||item.drafts.length!==ids.length||!ids.every(id=>item.drafts.filter(draft=>draft.mcId===id).length===1))throw new Error(`Запись ${item.id}: создайте черновики для всех найденных услуг.`);
+   texts=ids.map(id=>item.drafts.find(draft=>draft.mcId===id).text);
   }
-  download.hidden=false;
- }catch(error){status.className='error';status.textContent=error instanceof TypeError?'Нет соединения с локальным приложением.':error.message;}
- finally{submit.disabled=false;description.disabled=false;}
+  records.push([item.id,JSON.stringify(ids),JSON.stringify(texts)].map(field).join(','));
+ }
+ return records.join('\r\n')+'\r\n';
+}
+function controls(){
+ description.disabled=busy;submit.disabled=busy;csv.disabled=busy;importButton.disabled=busy||!csv.files.length;
+ generate.disabled=busy||!items.some(item=>item.selected_mcIds.length);download.hidden=!items.length;download.disabled=busy;
+ try{submissionCsv(items);submission.disabled=busy;submissionNote.textContent='CSV: testcase, microcats, descriptions. Включены все автоматически найденные категории; descriptions — тексты черновиков в том же порядке.';}
+ catch(error){submission.disabled=true;submissionNote.textContent='CSV для сдачи недоступен: '+error.message;}
+}
+function quotes(parent,category){
+ add(parent,'p','Цитаты:');for(const quote of category.evidence)add(parent,'pre',quote);
+ add(parent,'p',category.constraints.length?'Ограничения:':'Ограничения не извлечены.');
+ for(const constraint of category.constraints)add(parent,'pre',constraint);
+}
+function render(){
+ results.replaceChildren();
+ items.forEach((item,index)=>{
+  const card=add(results,'article','');card.className='item';add(card,'h3',`${item.id}${item.title?' — '+item.title:''}`);
+  const source=add(card,'details','');add(source,'summary','Исходный текст');add(source,'pre',item.description);
+  if(item.detection_status==='pending')add(card,'p','Обнаружение ещё не выполнено.');
+  if(item.detection_status==='running')add(card,'p','Поиск услуг…');
+  if(item.detection_status==='success'&&!item.automatic_categories.length)add(card,'p','Дополнительные услуги не найдены.');
+  for(const category of item.automatic_categories){
+   const box=add(card,'div','');box.className='category';const label=add(box,'label',''),check=document.createElement('input');
+   check.type='checkbox';check.id=`choice-${index}-${category.mcId}`;check.checked=item.selected_mcIds.includes(category.mcId);check.disabled=busy;
+   label.appendChild(check);label.appendChild(document.createTextNode(`${category.mcId} — ${names[category.mcId]||'Услуга'}`));
+   quotes(box,category);
+   check.addEventListener('change',()=>{
+    if(busy)return;
+    item.selected_mcIds=check.checked?[...item.selected_mcIds,category.mcId].sort((a,b)=>a-b):item.selected_mcIds.filter(id=>id!==category.mcId);
+    item.drafts=null;item.evidence=[];item.generation_meta=null;item.generation_status='not_requested';item.error=null;item.status='detected';
+    const focus=check.id;render();document.getElementById(focus)?.focus();message('Выбор изменён. Черновики этой записи сброшены.');
+   });
+  }
+  if(item.generation_status==='running')add(card,'p','Создание выбранных черновиков…');
+  if(item.error){const error=add(card,'p',`${item.error.stage==='detect'?'Поиск услуг':'Создание черновиков'}: ${item.error.message} (${item.error.code})`);error.className='error';}
+  for(const draft of item.drafts||[]){
+   const block=add(card,'div','');block.className='draft';add(block,'h4',`${draft.mcId} — ${draft.title}`);add(block,'p',draft.text);
+   const evidence=item.evidence.find(category=>category.mcId===draft.mcId);
+   if(evidence){const detail=add(block,'details','');add(detail,'summary','Цитаты и ограничения черновика');quotes(detail,evidence);}
+  }
+ });controls();
+}
+async function request(path,body,isCsv=false){
+ let response;
+ try{response=await fetch(path,{method:'POST',headers:{'Content-Type':isCsv?'text/csv':'application/json'},body:isCsv?body:JSON.stringify(body)});}
+ catch{throw {code:'connection_error',message:'Нет соединения с локальным приложением.'};}
+ let data;try{data=await response.json();}catch{throw {code:'invalid_response',message:'Сервер вернул неверный JSON.'};}
+ if(!response.ok)throw data.error||{code:'http_error',message:'Ошибка локального сервера.'};
+ return data;
+}
+function rowError(item,stage,error){item.error={stage,code:error.code||'client_error',message:error.message||'Не удалось обработать запись.'};item.status='error';item[stage==='detect'?'detection_status':'generation_status']='error';}
+async function detectItems(){
+ progress.hidden=false;progress.max=items.length;progress.value=0;
+ for(let index=0;index<items.length;index++){
+  const item=items[index];item.detection_status='running';message(`Поиск услуг: ${index+1} из ${items.length}…`);render();
+  try{const data=await request('/detect',{description:item.description,mcId:101});item.automatic_categories=data.categories;item.detection_meta=data.meta;item.detection_status='success';item.status='detected';}
+  catch(error){rowError(item,'detect',error);}
+  progress.value=index+1;render();
+ }
+ const errors=items.filter(item=>item.error).length;message(`Поиск завершён. Записей: ${items.length}, ошибок: ${errors}. Выберите услуги для черновиков.`,errors>0);
+}
+form.addEventListener('submit',async event=>{
+ event.preventDefault();if(busy)return;busy=true;items=[makeItem({id:'1',title:'',description:description.value})];render();
+ try{await detectItems();}finally{busy=false;render();}
 });
-download.addEventListener('click',()=>{if(!official)return;const url=URL.createObjectURL(new Blob([JSON.stringify(official,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='drafts.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+description.addEventListener('input',()=>{if(busy)return;items=[];progress.hidden=true;render();message('Исходный текст изменён. Выполните поиск услуг заново.');});
+csv.addEventListener('change',()=>{if(busy)return;items=[];progress.hidden=true;render();message('CSV изменён. Импортируйте файл для нового поиска услуг.');});
+importButton.addEventListener('click',async()=>{
+ if(busy||!csv.files.length)return;busy=true;items=[];progress.hidden=true;render();message('Импорт CSV…');
+ try{
+  const file=csv.files[0];if(!file.size||file.size>2*1024*1024)throw {message:'Нужен непустой CSV размером до 2 MiB.'};
+  const data=await request('/import-csv',await file.arrayBuffer(),true);items=data.items.map(makeItem);await detectItems();
+ }catch(error){message(error.message||'Не удалось импортировать CSV.',true);}
+ finally{busy=false;render();}
+});
+generate.addEventListener('click',async()=>{
+ if(busy)return;const selected=items.filter(item=>item.selected_mcIds.length);if(!selected.length)return;
+ busy=true;progress.hidden=false;progress.max=selected.length;progress.value=0;
+ try{
+  for(let index=0;index<selected.length;index++){
+   const item=selected[index];item.drafts=null;item.evidence=[];item.error=null;item.generation_meta=null;item.generation_status='running';item.status='generating';
+   message(`Создание черновиков: ${index+1} из ${selected.length}…`);render();
+   try{
+    const data=await request('/generate',{description:item.description,mcId:101,selected_mcIds:item.selected_mcIds});
+    item.drafts=data.result.drafts;item.evidence=data.evidence;item.generation_meta=data.meta;item.generation_status='success';item.status='generated';
+   }catch(error){rowError(item,'generate',error);}
+   progress.value=index+1;render();
+  }
+  const errors=selected.filter(item=>item.error).length;message(`Генерация завершена. Записей: ${selected.length}, ошибок: ${errors}. Проверьте черновики по исходнику.`,errors>0);
+ }finally{busy=false;render();}
+});
+download.addEventListener('click',()=>{
+ if(busy||!items.length)return;
+ const url=URL.createObjectURL(new Blob([JSON.stringify({items},null,2)],{type:'application/json'}));
+ const link=document.createElement('a');link.href=url;link.download='results.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+submission.addEventListener('click',()=>{
+ if(busy)return;
+ try{
+  const url=URL.createObjectURL(new Blob([submissionCsv(items)],{type:'text/csv;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download='submission.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }catch(error){message(error.message,true);}
+});
+controls();
 </script>
 </html>

@@ -7,6 +7,7 @@ import threading
 
 from .llm import (AnalysisError, DEFAULT_ENDPOINT, DEFAULT_MODEL, analyze, detect, generate,
                   parse_json, validate_endpoint, validate_input)
+from .batch import MAX_CSV_BYTES, parse_csv
 
 MAX_BODY_BYTES = 65536
 
@@ -54,7 +55,7 @@ def make_server(port=7860, endpoint=DEFAULT_ENDPOINT, model=DEFAULT_MODEL):
                 self.fail(404, 'not_found', 'Путь не найден.')
 
         def do_POST(self):
-            if self.path not in ('/predict', '/analyze', '/detect', '/generate'):
+            if self.path not in ('/predict', '/analyze', '/detect', '/generate', '/import-csv'):
                 self.fail(404, 'not_found', 'Путь не найден.')
                 return
             # JSON + same-origin browser requests prevent cross-site GPU calls.
@@ -70,16 +71,27 @@ def make_server(port=7860, endpoint=DEFAULT_ENDPOINT, model=DEFAULT_MODEL):
                 self.fail(400, 'invalid_body', 'Нужен один корректный Content-Length.')
                 return
             length = int(lengths[0])
-            if not 0 < length <= MAX_BODY_BYTES:
-                self.fail(413, 'body_too_large', 'Допустим непустой JSON размером до 65536 байт.')
+            is_csv = self.path == '/import-csv'
+            limit = MAX_CSV_BYTES if is_csv else MAX_BODY_BYTES
+            if not 0 < length <= limit:
+                self.fail(413, 'body_too_large', f'Нужно непустое тело размером до {limit} байт.')
                 return
-            if self.headers.get_content_type() != 'application/json':
-                self.fail(400, 'invalid_body', 'Нужен Content-Type: application/json.')
+            content_type = 'text/csv' if is_csv else 'application/json'
+            if self.headers.get_content_type() != content_type:
+                self.fail(400, 'invalid_body', f'Нужен Content-Type: {content_type}.')
                 return
             try:
                 raw = self.rfile.read(length)
                 if len(raw) != length:
                     self.fail(400, 'invalid_body', 'Тело запроса получено не полностью.')
+                    return
+                if is_csv:
+                    try:
+                        items = parse_csv(raw)
+                    except ValueError as error:
+                        self.fail(422, 'invalid_csv', str(error))
+                        return
+                    self.send_json(200, {'items': items})
                     return
                 data = parse_json(raw)
             except (ValueError, UnicodeError, RecursionError):
